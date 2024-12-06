@@ -4,6 +4,8 @@ Check chance coincidence of FRB obs with ZTF
 # usage 
 Check chance co-incidence of a FRB with ZTF observation of that same field withing a time range
 
+usage: same_sky.py [-h] [-t ] [-from ] [-to ] [-op ]
+
 optional arguments:
 
   -h, --help            show this help message and exit
