@@ -50,7 +50,8 @@ def manipulate(df_raw):
     return df_real
 
 
-def same_sky(delta_t_min=None, from_iso=None, to_iso=None, op_dir=None):
+def same_sky(delta_t_min=None, from_iso=None, to_iso=None, op_file=None):
+    
     df_voe = voe_DB()  # Collect the entire VOE FRB databse
     df_real = manipulate(df_voe)
 
@@ -64,9 +65,9 @@ def same_sky(delta_t_min=None, from_iso=None, to_iso=None, op_dir=None):
 
     df_real = df_real[df_real.date.between(from_iso, to_iso)]
 
-    with open(os.path.join(op_dir, "frb.txt"), "w") as f:
+    with open(op_file, "w") as f:
         f.write(f"{len(df_real)} FRB events found b/w {from_iso} : {to_iso}")
-        f.write(f" List of ZTF obs of FRB field within time range {delta_t_min}")
+        f.write(f"\n List of ZTF obs of FRB fields within time range {delta_t_min}")
 
         for i in range(len(df_real)):
             try:
@@ -122,10 +123,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-op",
-        "--op_dir",
+        "--op_file",
         type=str,
-        default=os.getcwd(),
-        help="The output directory to save frb.txt (Defaults to cwd) ",
+        default=os.path.join(os.getcwd(), 'frb.txt'),
+        help="The output file (Defaults to CWD/frb.txt) ",
     )
 
     args = parser.parse_args()
