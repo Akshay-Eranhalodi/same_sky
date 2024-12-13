@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import requests
-import json
 import pandas as pd
 from astropy.time import Time
 from astropy import units as u
@@ -10,6 +9,7 @@ from ztfquery import fields
 import os
 import datetime
 import argparse
+import numpy as np
 
 import warnings
 
@@ -50,8 +50,35 @@ def manipulate(df_raw):
     return df_real
 
 
+def result_df(
+    logs_obs_frb, delta_frb_ztf, delta_t_min, df_one_frb, df_result, head_frb, head_log
+):
+    logs_obs_frb["delta_frb_ztf"] = delta_frb_ztf.to(u.minute).value
+    mask = logs_obs_frb.delta_frb_ztf.between(-delta_t_min, delta_t_min)
+    masked_logs = logs_obs_frb[mask]
+
+    frb_details = [
+        df_one_frb.event_id,
+        df_one_frb.jd_det,
+        df_one_frb.date,
+        df_one_frb.time,
+    ]
+    for j in range(len(masked_logs)):
+        log_details = [
+            logs_obs_frb.iloc[j].datetime,
+            logs_obs_frb.iloc[j].exptime,
+            logs_obs_frb.iloc[j].obsjd,
+            logs_obs_frb.iloc[j].delta_frb_ztf,
+        ]
+        row = {
+            **dict(zip(head_frb, frb_details)),
+            **dict(zip(head_log, log_details)),
+        }
+        df_result.loc[len(df_result)] = row
+    return df_result
+
+
 def same_sky(delta_t_min=None, from_iso=None, to_iso=None, op_file=None):
-    
     df_voe = voe_DB()  # Collect the entire VOE FRB databse
     df_real = manipulate(df_voe)
 
@@ -64,10 +91,15 @@ def same_sky(delta_t_min=None, from_iso=None, to_iso=None, op_file=None):
         to_iso = datetime.date.today()
 
     df_real = df_real[df_real.date.between(from_iso, to_iso)]
+    fmt_err = []
+    head_frb = ["event_id", "FRB_jd", "FRB_date", "FRB_time"]
+    head_log = ["ztf_datetime", "exposure", "ztf_jd", "delta_min"]
+
+    df_result = pd.DataFrame(columns=head_frb + head_log)
 
     with open(op_file, "w") as f:
         f.write(f"{len(df_real)} FRB events found b/w {from_iso} : {to_iso}")
-        f.write(f"\n List of ZTF obs of FRB fields within time range {delta_t_min}")
+        f.write(f"\nList of ZTF obs of FRB fields within time range {delta_t_min}")
 
         for i in range(len(df_real)):
             try:
@@ -77,23 +109,44 @@ def same_sky(delta_t_min=None, from_iso=None, to_iso=None, op_file=None):
 
                 logs = skyvision.CompletedLog.from_date(frb_date, update=True)
 
-                ztf_field_jd = logs.get_filtered(
+                logs_obs_frb = logs.get_filtered(
                     fields.get_fields_containing_target(ra_frb, dec_frb)
-                ).obsjd.to_numpy()
+                )
 
-                delta_frb_ztf = abs(frb_jd - ztf_field_jd) * u.day
+                ztf_field_jd = logs_obs_frb.obsjd.to_numpy()
+
+                delta_frb_ztf = (ztf_field_jd - frb_jd) * u.day
 
                 if len(ztf_field_jd) > 0:
-                    in_range = [one for one in delta_frb_ztf if one < delta_t_min]
+                    in_range = [one for one in delta_frb_ztf if abs(one) < delta_t_min]
 
                     if in_range:
                         f.write(
                             f"\n\nFound ZTF obs of FRB field within {delta_frb_ztf.to(u.minute)} \n"
                         )
                         f.write(f"FRB details:\n {df_real.iloc[i]}")
+                        df_result = result_df(
+                            logs_obs_frb,
+                            delta_frb_ztf,
+                            delta_t_min,
+                            df_real.iloc[i],
+                            df_result,
+                            head_frb,
+                            head_log,
+                        )
 
-            except AttributeError:
-                pass
+            except Exception as e:
+                if (
+                    str(e) == "list indices must be integers or slices, not str"
+                    or str(e) == "'CompletedLog' object has no attribute '_logs'"
+                ):
+                    pass  # To skip cases with wrong formattting (eg: 2022-12-08 ) or with days with no logs but are still loaded to CompletedLog object (eg: 2021-10-21)
+                else:
+                    raise
+        f.write(
+            f"\n\nFormat error of logs for the dates \n{np.unique(np.asarray(fmt_err))}"
+        )
+        df_result.to_csv("./frb_ztf_sky.csv", index=False)
 
 
 if __name__ == "__main__":
@@ -125,7 +178,7 @@ if __name__ == "__main__":
         "-op",
         "--op_file",
         type=str,
-        default=os.path.join(os.getcwd(), 'frb.txt'),
+        default=os.path.join(os.getcwd(), "frb.txt"),
         help="The output file (Defaults to CWD/frb.txt) ",
     )
 
